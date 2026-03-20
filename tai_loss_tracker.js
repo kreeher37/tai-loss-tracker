@@ -247,7 +247,7 @@ async function createLossItem(fields, lossAmount, lossMargin) {
   const itemName     = `Load #${fields.loadId}  |  ${origin} → ${destination}  |  -$${lossAmount.toFixed(2)}`;
 
   const colValues = {
-    [CONFIG.monday.col.loadId]:      fields.loadId,
+    [CONFIG.monday.col.loadId]:      String(fields.loadId),
     [CONFIG.monday.col.lossDate]:    { date: today },
     [CONFIG.monday.col.customer]:    fields.customer,
     [CONFIG.monday.col.origin]:      origin,
