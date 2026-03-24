@@ -24,20 +24,18 @@ const fs      = require('fs');
 const app = express();
 app.use(express.json());
 
-// ─── CONFIGURATION ────────────────────────────────────────────────────────────
+// --- CONFIGURATION ------------------------------------------------------------
 
 const CONFIG = {
   port: process.env.PORT || 3000,
 
   monday: {
-    apiToken:  process.env.MONDAY_API_TOKEN,   // Monday.com Admin → API → copy token
+    apiToken:  process.env.MONDAY_API_TOKEN,
     apiUrl:    'https://api.monday.com/v2',
-    boardId:   '18403656203',                  // BDR Loss Log board
+    boardId:   '18403656203',
 
-    // Group to place new loss items in
-    pendingGroupId: 'group_mm1c80tw',          // "🔴 Pending — Needs BDR Log"
+    pendingGroupId: 'group_mm1c80tw',
 
-    // Column IDs (set during board creation)
     col: {
       bdrOwner:     'multiple_person_mm1cnaz',
       lossDate:     'date_mm1csqag',
@@ -53,22 +51,6 @@ const CONFIG = {
     }
   },
 
-  // ── BDR MAPPING ──────────────────────────────────────────────────────────────
-  // Map TAI rep names (exactly as they appear in TAI) → Monday.com user IDs.
-  // Monday.com user IDs are listed below from your account for easy reference.
-  //
-  //  Brandon Hogan      → 31498272
-  //  Matt Newcomb       → 31498319
-  //  Derek Reft         → 31498273
-  //  Jordan Reber       → 31282448
-  //  Tricia Hopkins     → 46260568
-  //  Kurt Branagan      → 31498322
-  //  Jaime Mike         → 49767240
-  //  Caitlin Wass       → 33210620
-  //  Jarret Czartoryski → 46303750
-  //  Erica Gomez        → 54691429
-  //
-  // ACTION REQUIRED: Replace the keys with the exact rep name strings from TAI.
   bdrMap: {
     'Brandon Hogan':      '31498272',
     'Matt Newcomb':       '31498319',
@@ -87,27 +69,17 @@ const CONFIG = {
     'Javier Morejon':     '70578421',
   },
 
-  // ── LOSS TRIGGER STATUSES ────────────────────────────────────────────────────
-  // Confirmed TAI status that indicates a carrier has been committed to the load.
   triggerStatuses: [
     'Dispatched',
   ],
 
-  // Minimum loss in dollars before creating a Monday.com item.
-  // Prevents noise from tiny rounding differences. Set to 0 to log everything.
   minLossThreshold: 1.00,
 
-  // ── OFFICE WHITELIST ─────────────────────────────────────────────────────────
-  // Managed via the "TAI Office Whitelist" board in Monday.com (ID below).
-  // Add/remove offices directly in Monday.com — no code changes needed.
-  // The script loads the whitelist at startup and refreshes every 5 minutes.
   officeWhitelistBoardId: '18403670401',
   officeWhitelistRefreshMinutes: 5,
 };
 
-// ─── DEDUPLICATION ────────────────────────────────────────────────────────────
-// Prevents duplicate Monday.com items if TAI fires the same webhook multiple times.
-// Uses a local JSON file. For production with high volume, swap for a database.
+// --- DEDUPLICATION ------------------------------------------------------------
 
 const DEDUP_FILE = './processed_loads.json';
 
@@ -126,13 +98,10 @@ function alreadyProcessed(loadId) {
   return !!getProcessed()[loadId];
 }
 
-// --- OFFICE WHITELIST --------------------------------------------------------
-// The whitelist of allowed internal office IDs is loaded from the
-// "TAI Office Whitelist" Monday.com board and refreshed every N minutes.
-// To add/remove an office, just edit that board — no code changes needed.
+// --- OFFICE WHITELIST ---------------------------------------------------------
 
-let officeWhitelist    = new Set();  // populated by loadOfficeWhitelist()
-let whitelistLoadedAt  = null;
+let officeWhitelist   = new Set();
+let whitelistLoadedAt = null;
 
 async function loadOfficeWhitelist() {
   const query = `
@@ -184,8 +153,6 @@ async function ensureWhitelistFresh() {
 }
 
 function isInternalOffice(customer) {
-  // If whitelist is empty (not yet configured), allow all offices through
-  // so the integration doesn't silently block everything on first deploy
   if (officeWhitelist.size === 0) {
     console.warn('⚠️  Office whitelist is empty — add offices to the TAI Office Whitelist board in Monday.com');
     return true;
@@ -193,41 +160,24 @@ function isInternalOffice(customer) {
   return officeWhitelist.has(customer?.officeOrganizationId);
 }
 
-// --- BDR EXTRACTION ----------------------------------------------------------
-// salesRepNames is a comma-separated string that may contain multiple people,
-// e.g. "Jane Smith - Account Manager, Brandon Hogan - BDR, Tom Lee - Ops"
-// We extract the single entry that ends with "- BDR".
+// --- BDR EXTRACTION -----------------------------------------------------------
 
 function extractBDR(salesRepNames) {
   if (!salesRepNames) return '';
   const names = salesRepNames.split(',').map(n => n.trim());
   const bdr = names.find(n => n.toLowerCase().endsWith('- bdr'));
   if (!bdr) return '';
-  // Strip the " - BDR" suffix to get just the person's name for mapping
   return bdr.replace(/\s*-\s*bdr\s*$/i, '').trim();
 }
 
 function getBDRUserId(repName) {
   if (!repName) return null;
-  // Case-insensitive lookup so TAI name casing never causes a miss
   const lower = repName.toLowerCase();
   const match = Object.keys(CONFIG.bdrMap).find(k => k.toLowerCase() === lower);
   return match ? CONFIG.bdrMap[match] : null;
 }
 
-// --- PARSE TAI PAYLOAD -------------------------------------------------------
-// Field names confirmed from TAI Public API swagger documentation.
-//
-// TAI ShipmentStatusUpdate payload structure (confirmed):
-//   shipmentId                  -> unique load identifier
-//   totalSell                   -> customer quoted rate (sell rate)
-//   totalBuy                    -> total carrier cost (buy rate)
-//   status                      -> current shipment status string
-//   customer.salesRepNames      -> assigned BDR/rep name(s)
-//   customer.name               -> customer name
-//   stops[]                     -> array of stops; stopType "First Pickup" = origin,
-//                                  "Final Delivery" = destination
-//   carrierList[0].name         -> name of the committed carrier
+// --- PARSE TAI PAYLOAD --------------------------------------------------------
 
 function parsePayload(body) {
   const stops      = body.stops || [];
@@ -250,7 +200,7 @@ function parsePayload(body) {
   };
 }
 
-// ─── CREATE MONDAY.COM ITEM ───────────────────────────────────────────────────
+// --- CREATE MONDAY.COM ITEM ---------------------------------------------------
 
 async function createLossItem(fields, lossAmount, lossMargin) {
   const mondayUserId = getBDRUserId(fields.repName);
@@ -313,10 +263,9 @@ async function createLossItem(fields, lossAmount, lossMargin) {
   return res.data.data.create_item;
 }
 
-// ─── WEBHOOK ENDPOINT ─────────────────────────────────────────────────────────
+// --- WEBHOOK ENDPOINT ---------------------------------------------------------
 
 app.post('/webhook/shipment-status', async (req, res) => {
-  // Always respond 200 immediately so TAI doesn't retry
   res.status(200).json({ received: true });
 
   const raw = req.body;
@@ -325,23 +274,19 @@ app.post('/webhook/shipment-status', async (req, res) => {
   try {
     const fields = parsePayload(raw);
 
-    // ── Guard: must have a load ID
     if (!fields.loadId) {
       console.log('⏭  Skipped: no load ID in payload');
       return;
     }
 
-    // ── Refresh whitelist if stale
     await ensureWhitelistFresh();
 
-    // ── Guard: must be an internal office (not an agency/outside office)
     if (!isInternalOffice(raw.customer)) {
       const office = raw.customer?.officeName || raw.customer?.officeOrganizationId || 'unknown';
       console.log(`⏭  Load ${fields.loadId}: office "${office}" is not an internal office — skipping`);
       return;
     }
 
-    // ── Guard: status must be a carrier-commitment status
     const statusMatch = CONFIG.triggerStatuses.some(t =>
       fields.status.toLowerCase().includes(t.toLowerCase())
     );
@@ -350,13 +295,11 @@ app.post('/webhook/shipment-status', async (req, res) => {
       return;
     }
 
-    // ── Guard: must have both rates
     if (!fields.sellRate || !fields.buyRate) {
       console.log(`⏭  Load ${fields.loadId}: missing rate data (sell: ${fields.sellRate}, buy: ${fields.buyRate})`);
       return;
     }
 
-    // ── Guard: must be a loss above threshold
     const lossAmount = fields.buyRate - fields.sellRate;
     const lossMargin = (lossAmount / fields.sellRate) * 100;
 
@@ -365,17 +308,15 @@ app.post('/webhook/shipment-status', async (req, res) => {
       return;
     }
 
-    // ── Guard: deduplication
     if (alreadyProcessed(fields.loadId)) {
       console.log(`⏭  Load ${fields.loadId}: already logged to Monday.com — skipping duplicate`);
       return;
     }
 
-    // ── LOSS DETECTED → create Monday.com item
     console.log(`🚨 LOSS DETECTED — Load ${fields.loadId}`);
     console.log(`   Customer : ${fields.customer}`);
     console.log(`   Lane     : ${fields.originCity} → ${fields.destCity}`);
-    console.log(`   BDR      : ${fields.repName || 'Unknown (no "- BDR" match in salesRepNames)'}`)
+    console.log(`   BDR      : ${fields.repName || 'Unknown (no "- BDR" match in salesRepNames)'}`);
     console.log(`   Quoted   : $${fields.sellRate.toFixed(2)}`);
     console.log(`   Carrier  : $${fields.buyRate.toFixed(2)}`);
     console.log(`   Loss     : $${lossAmount.toFixed(2)} (${lossMargin.toFixed(1)}%)`);
@@ -390,7 +331,7 @@ app.post('/webhook/shipment-status', async (req, res) => {
   }
 });
 
-// ─── HEALTH CHECK ─────────────────────────────────────────────────────────────
+// --- HEALTH CHECK -------------------------------------------------------------
 
 app.get('/health', (req, res) => {
   res.json({
@@ -402,9 +343,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ─── START ────────────────────────────────────────────────────────────────────
+// --- START --------------------------------------------------------------------
 
-// Load the office whitelist from Monday.com before starting the server
 loadOfficeWhitelist()
   .catch(err => console.warn('⚠️  Could not load office whitelist on startup:', err.message));
 
