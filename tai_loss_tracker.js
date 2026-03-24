@@ -80,6 +80,11 @@ const CONFIG = {
     'Caitlin Wass':       '33210620',
     'Jarret Czartoryski': '46303750',
     'Erica Gomez':        '54691429',
+    // Additional BDRs
+    'Billy Depaul':       '57883376',  // William Henry DePaul
+    'Josh Gatchell':      '35341325',  // Lead Account Manager
+    'Cole Bogozi':        '57882425',
+    'Javier Morejon':     '70578421',
   },
 
   // ── LOSS TRIGGER STATUSES ────────────────────────────────────────────────────
@@ -202,6 +207,14 @@ function extractBDR(salesRepNames) {
   return bdr.replace(/\s*-\s*bdr\s*$/i, '').trim();
 }
 
+function getBDRUserId(repName) {
+  if (!repName) return null;
+  // Case-insensitive lookup so TAI name casing never causes a miss
+  const lower = repName.toLowerCase();
+  const match = Object.keys(CONFIG.bdrMap).find(k => k.toLowerCase() === lower);
+  return match ? CONFIG.bdrMap[match] : null;
+}
+
 // --- PARSE TAI PAYLOAD -------------------------------------------------------
 // Field names confirmed from TAI Public API swagger documentation.
 //
@@ -240,7 +253,7 @@ function parsePayload(body) {
 // ─── CREATE MONDAY.COM ITEM ───────────────────────────────────────────────────
 
 async function createLossItem(fields, lossAmount, lossMargin) {
-  const mondayUserId = CONFIG.bdrMap[fields.repName];
+  const mondayUserId = getBDRUserId(fields.repName);
   const today        = new Date().toISOString().split('T')[0];
   const origin       = [fields.originCity, fields.originState].filter(Boolean).join(', ');
   const destination  = [fields.destCity,   fields.destState  ].filter(Boolean).join(', ');
