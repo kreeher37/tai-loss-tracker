@@ -39,7 +39,6 @@ const CONFIG = {
 
     // Column IDs (set during board creation)
     col: {
-      loadId:       'text_mm1cawhs',
       bdrOwner:     'multiple_person_mm1cnaz',
       lossDate:     'date_mm1csqag',
       customer:     'text_mm1cvx5g',
@@ -50,6 +49,7 @@ const CONFIG = {
       lossAmount:   'numeric_mm1cbayn',
       lossMargin:   'numeric_mm1c7cxn',
       status:       'color_mm1cs6ya',
+      taiLink:      'link_mm1rqgkh',
     }
   },
 
@@ -257,10 +257,9 @@ async function createLossItem(fields, lossAmount, lossMargin) {
   const today        = new Date().toISOString().split('T')[0];
   const origin       = [fields.originCity, fields.originState].filter(Boolean).join(', ');
   const destination  = [fields.destCity,   fields.destState  ].filter(Boolean).join(', ');
-  const itemName     = `Load #${fields.loadId}  |  ${origin} → ${destination}  |  -$${lossAmount.toFixed(2)}`;
+  const itemName     = String(fields.loadId);
 
   const colValues = {
-    [CONFIG.monday.col.loadId]:      String(fields.loadId),
     [CONFIG.monday.col.lossDate]:    { date: today },
     [CONFIG.monday.col.customer]:    fields.customer,
     [CONFIG.monday.col.origin]:      origin,
@@ -270,6 +269,10 @@ async function createLossItem(fields, lossAmount, lossMargin) {
     [CONFIG.monday.col.lossAmount]:  String(lossAmount.toFixed(2)),
     [CONFIG.monday.col.lossMargin]:  String(lossMargin.toFixed(1)),
     [CONFIG.monday.col.status]:      { label: 'Pending BDR Log' },
+    [CONFIG.monday.col.taiLink]:     {
+      url: `https://arllogistics.taicloud.net/back-office/shipment/shipment-details/${fields.loadId}`,
+      text: `Load #${fields.loadId}`
+    },
   };
 
   if (mondayUserId) {
